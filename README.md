@@ -1,11 +1,11 @@
-# 2D Physics Sandbox
+# AI-Powered 2D Physics Sandbox
 
-A 2D physics engine with three interfaces built on top of it: a desktop Pygame app, a web app (React + Python backend), and an AI-powered version where agents generate scenes from natural language. The physics simulation is built from scratch, no physics engine or physics library is used anywhere. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. If not manually, you can directly ask the AI agent to build the scene for you.
+A 2D physics engine with three interfaces built on top of it: a desktop Pygame app, an AI-powered version where agents generate scenes from natural language and a web app (React + Python backend). The physics simulation is built from scratch, no physics engine or physics library is used anywhere. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. If not manually, you can directly ask the AI agent to build the scene for you.
 
 This repo contains three implementations:
 
 - **`Pygame_version/`** — the original standalone desktop app, built in Python with Pygame. Pygame is only used for rendering, windowing, and input handling; it provides no physics.
-- **`AI_Version/`** - a layer of AI agents on top of the Pygame app, to generate scenes using natural language. **LangGraph** is used as the orchestration tool, to manage all the agents required to understand the user request, and generate appropriate objects.
+- **`AI_Version/`** - a layer of AI agents on top of the Pygame app, to generate scenes using natural language. **LangGraph** is used as the orchestration tool, to manage all the agents required to understand the user request, and generate appropriate objects. Two layers of AI reasoning are used to output the most accurate scene.
 - **`Web_version/`** — a port of the same simulation to a web app, with a **FastAPI** backend that owns and runs the physics loop server-side (streaming state to the browser over a WebSocket at 60Hz) and a **React (Vite)** frontend that renders the world on a `<canvas>` with the side panel / sliders / info panel / kinematics graphs in HTML/SVG.
 
 You can access the deployed web version from this link: https://physics-sandbox-roan.vercel.app/  (It may take a minute to connect to the server and load)
@@ -21,6 +21,17 @@ You can access the deployed web version from this link: https://physics-sandbox-
 - Adjust **gravity** and **restitution (bounciness)** on the fly using sliders
 - **Pause** the simulation at any time
 - In the **AI version**, describe a scene in plain English (e.g. "drop three balls connected by springs") and have agents build it for you
+
+## AI Agent Pipeline Architecture
+
+The LLM used is Gemini 3.1 Flash Lite. Following are the steps in the pipeline:
+- A LLM understands the user query, and thinks out the whole reasoning loudly.
+- A second LLM extracts the positions and velocities from the physical reasoning, and generates a structured output.
+- The imaginary objects are converted to the actual objects of the Pygame scene, with the same physical parameters.
+- Another LLM is used to reason out if any springs are to be added into the system. If yes, it generates their physical parameters, and gives a structured output.
+- The springs are converted to actual Pygame objects.
+- The Pygame scene is initiated with the desired objects.
+
 
 ## Controls (Pygame version and AI version)
 
