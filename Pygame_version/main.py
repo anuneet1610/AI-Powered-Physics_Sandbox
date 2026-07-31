@@ -1,12 +1,15 @@
+import sys, os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 import pygame
 import random
 import coords
 import config
-import bodies
-import wall
-import spring
-import collisions
-import gravity_well
+import shared_physics_engine.bodies
+import shared_physics_engine.wall
+import shared_physics_engine.spring
+import shared_physics_engine.collisions
+import shared_physics_engine.gravity_well
 import state
 import math
 
