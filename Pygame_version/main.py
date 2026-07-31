@@ -9,7 +9,7 @@ import shared_physics_engine.bodies
 import shared_physics_engine.wall
 import shared_physics_engine.spring
 import shared_physics_engine.collisions
-import shared_physics_engine.gravity_well
+import gravity_well
 import state
 import math
 
