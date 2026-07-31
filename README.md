@@ -1,11 +1,12 @@
 # 2D Physics Sandbox
 
-A 2D physics simulation built from scratch — no physics engine or physics library used anywhere. Every bit of physics — gravity, forces, integration, collision detection, collision response, spring dynamics, gravitational attraction — is written using plain math and vectors. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. There's also a live info panel and kinematics graphs for whatever object you select.
+A 2D physics engine with three interfaces built on top of it: a desktop Pygame app, a web app (React + Python backend), and an AI-powered version where agents generate scenes from natural language. The physics simulation is built from scratch, no physics engine or physics library is used anywhere. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. If not manually, you can directly ask the AI agent to build the scene for you.
 
-This repo contains two implementations:
+This repo contains three implementations:
 
-- **`pygame_version/`** — the original standalone desktop app, built in Python with Pygame. Pygame is only used for rendering, windowing, and input handling; it provides no physics.
-- **`web_version/`** — a port of the same simulation to a web app, with a **FastAPI** backend that owns and runs the physics loop server-side (streaming state to the browser over a WebSocket at 60Hz) and a **React (Vite)** frontend that renders the world on a `<canvas>` with the side panel / sliders / info panel / kinematics graphs in HTML/SVG.
+- **`Pygame_version/`** — the original standalone desktop app, built in Python with Pygame. Pygame is only used for rendering, windowing, and input handling; it provides no physics.
+- **`AI_Version/`** - a layer of AI agents on top of the Pygame app, to generate scenes using natural language. **LangGraph** is used as the orchestration tool, to manage all the agents required to understand the user request, and generate appropriate objects.
+- **`Web_version/`** — a port of the same simulation to a web app, with a **FastAPI** backend that owns and runs the physics loop server-side (streaming state to the browser over a WebSocket at 60Hz) and a **React (Vite)** frontend that renders the world on a `<canvas>` with the side panel / sliders / info panel / kinematics graphs in HTML/SVG.
 
 You can access the deployed web version from this link: https://physics-sandbox-roan.vercel.app/  (It may take a minute to connect to the server and load)
 
@@ -19,8 +20,9 @@ You can access the deployed web version from this link: https://physics-sandbox-
 - Watch **live graphs** of x(t), y(t), vx(t), and vy(t) for the selected object
 - Adjust **gravity** and **restitution (bounciness)** on the fly using sliders
 - **Pause** the simulation at any time
+- In the **AI version**, describe a scene in plain English (e.g. "drop three balls connected by springs") and have agents build it for you
 
-## Controls (Pygame version)
+## Controls (Pygame version and AI version)
 
 | Key | Action |
 |---|---|
@@ -35,6 +37,8 @@ You can access the deployed web version from this link: https://physics-sandbox-
 | Click a yellow value in the info panel | Edit that field directly (type a number, `Enter` to confirm, `Esc` to cancel) |
 
 In the web version, the same interactions (mode switching, spawning, dragging sliders, deleting last object, editing fields) are driven by on-screen buttons and plain `<input>` elements that commit on blur/Enter, since browsers don't expose the same raw-keyboard modifier ergonomics as Pygame. The Z+key "delete last X" shortcut becomes a "Delete last <type>" button aware of the current mode.
+
+In the AI version, the same window and controls are available, but objects can also be added, wired, or configured directly by the agents in response to a natural-language prompt instead of manual clicks/keys.
 
 ## Modes
 
@@ -76,7 +80,16 @@ Mass of the rectangle is changed using the bottom panel.
 ## File structure
 
 ```
-pygame_version/
+AI_Version/
+    supervisor.py         Top-level orchestrator: wires the planner and executor agents together with LangGraph
+    agents/
+        planner.py         Agent that turns a natural-language scene description into a structured plan of objects/actions
+        executor.py         Agent that takes the planner's structured plan and calls into sandbox_objects/ to build it
+        run_headless.py    Entry point for generating/running a scene without opening the Pygame window (agent-only mode)
+    sandbox_objects/       Pygame app + physics engine (bodies/collisions/spring/wall/gravity_well/state/config/coords/ui/main),
+                           driven either by normal keyboard/mouse input or by the executor agent
+
+Pygame_version/
     main.py          Entry point: game loop, event handling, physics step order, rendering
     ui.py            All UI drawing and interaction — sliders, info panel, spring panel, graphs
     bodies.py        RigidBody base class, plus Ball and Rectangle (physics + collision response)
@@ -88,14 +101,14 @@ pygame_version/
     config.py        Screen/window layout constants (panel positions, sizes)
     coords.py        Converts between world coordinates (metres) and screen coordinates (pixels)
 
-web_version/
+Web_version/
     backend/
         main.py               FastAPI app: WebSocket endpoint, command dispatch (handle_command),
                                health check route, CORS/origin setup
         requirements.txt      Backend Python dependencies
         physics/
             simulation.py     SimulationState — instance-based version of the old state.py globals
-            bodies.py         RigidBody, Ball, Rectangle — ported near-verbatim from pygame_version
+            bodies.py         RigidBody, Ball, Rectangle — ported near-verbatim from Pygame_version
             collisions.py     Wall collision detection/resolution, world boundary clamping
             wall.py           Wall class
             spring.py         Spring class
@@ -114,44 +127,61 @@ web_version/
             App.jsx           Top-level layout wiring canvas + panels + graphs together
 ```
 
-### `pygame_version/main.py`
+Note: `Pygame_version/` and `AI_Version/sandbox_objects/` each keep their own copy of the physics engine files (`bodies.py`, `collisions.py`, `spring.py`, `wall.py`, `gravity_well.py`, `state.py`, `config.py`, `coords.py`, `ui.py`, `main.py`) — the AI version is built on top of the Pygame app's copy, with the executor agent driving it programmatically instead of (or in addition to) keyboard/mouse input.
+
+### `AI_Version/supervisor.py`
+Sets up and runs the LangGraph graph connecting the planner and executor agents, and exposes the entry point used to hand a natural-language prompt to the agent pipeline.
+
+### `AI_Version/agents/planner.py`
+Takes the user's natural-language scene description and turns it into a structured, ordered plan of objects and actions (e.g. "spawn ball at (x, y)", "connect spring between object A and B") for the executor to carry out.
+
+### `AI_Version/agents/executor.py`
+Consumes the planner's structured plan and calls into `sandbox_objects/` (the same classes/functions used by the Pygame app) to actually create the balls, rectangles, walls, springs, and gravity wells described in the plan.
+
+### `AI_Version/agents/run_headless.py`
+Entry point for running the agent pipeline without opening the Pygame window — useful for generating a scene programmatically or testing the planner/executor without the UI.
+
+### `AI_Version/sandbox_objects/`
+A copy of the Pygame app (see `Pygame_version/` below for what each file does) that the executor agent drives directly, so the same simulation can be built either by hand (keyboard/mouse) or by natural-language prompt.
+
+### `Pygame_version/main.py`
 The entry point. Sets up the initial walls, balls, and rectangles, opens the Pygame window, and runs the main loop. Each frame it:
 1. Handles keyboard/mouse input (mode switching, spawning objects, dragging sliders, editing fields)
 2. Steps the physics: clears forces → applies springs and gravity wells → integrates motion → resolves wall collisions → resolves ball/rectangle collisions → clamps everything inside the world boundary
 3. Records the selected object's position/velocity history (for the graphs)
 4. Draws everything to the screen
 
-### `pygame_version/bodies.py`
+### `Pygame_version/bodies.py`
 Defines `RigidBody`, the base class every physics object inherits from. It stores position, velocity, mass, and accumulated force, and implements basic semi-implicit Euler integration (`F = ma`, update velocity then position). `Ball` and `Rectangle` extend it with their own shape data and their own `check_collision` methods (ball-ball, rectangle-rectangle, and rectangle-ball), all handled with basic impulse-based collision resolution.
 
-### `pygame_version/collisions.py`
+### `Pygame_version/collisions.py`
 Handles collisions between objects and walls. Includes both a "static" check (object already overlapping a wall) and a "swept" check (object moving fast enough to tunnel through a wall in a single frame — caught by checking which side of the wall the object was on last frame vs. this frame). Also contains the logic that keeps every object inside the outer world boundary.
 
-### `pygame_version/wall.py`
+### `Pygame_version/wall.py`
 A minimal `Wall` class: just two endpoints, with the segment's length, tangent direction, and normal direction precomputed once.
 
-### `pygame_version/spring.py`
+### `Pygame_version/spring.py`
 A `Spring` connects two bodies and applies a force proportional to how far the spring is stretched or compressed from its rest length, plus a damping term based on relative velocity along the spring.
 
-### `pygame_version/gravity_well.py`
+### `Pygame_version/gravity_well.py`
 A `Gravity_Well` pulls balls and rectangles toward it using an inverse-square law (`F = G * m1 * m2 / r^2`), similar to Newtonian gravity, in addition to the normal downward gravity from `state.g`.
 
-### `pygame_version/state.py`
+### `Pygame_version/state.py`
 Holds shared, mutable values used across the whole project — current gravity, restitution, current interaction mode (BALL/WALL/SPRING/etc.), which object is selected, pause state, world size, and the rolling history of the selected object's motion (used for the graphs).
 
-### `pygame_version/config.py`
+### `Pygame_version/config.py`
 Just layout constants — window size, where the simulation box is drawn on screen, and where the graph panel sits.
 
-### `pygame_version/coords.py`
+### `Pygame_version/coords.py`
 Two small functions that convert between "world" coordinates (metres, y-up, used by the physics) and "screen" coordinates (pixels, y-down, used by Pygame) so the two systems never get mixed up.
 
-### `pygame_version/ui.py`
+### `Pygame_version/ui.py`
 Everything visual that isn't the simulation itself: the gravity/restitution sliders, the mode indicator, the pause indicator, the object list panel (used for spring wiring and selection), the editable info panel for the selected object, and the four kinematics graphs (x, y, vx, vy over time).
 
-### `web_version/backend/`
-FastAPI server. Owns the simulation (balls, rectangles, walls, springs, gravity wells) and runs the physics loop server-side, streaming state to the browser over a WebSocket at 60Hz. All physics math (integration, collisions, springs, gravity wells) was ported near-verbatim from the pygame version's `bodies.py` / `collisions.py` / `spring.py` / `gravity_well.py` / `wall.py` into `backend/physics/`. The old `state.py` module-level globals are now instance attributes on `SimulationState` (`backend/physics/simulation.py`), so each connection could in principle get its own independent sim if multi-room support is added later — right now everyone shares one global `sim`. The old pygame event loop (mouse clicks placing objects, keyboard mode switches, dragging sliders, editing the info panel) is now a set of JSON "commands" sent over the WebSocket (`main.py`'s `handle_command`), mirroring each of the old `if event.type == ...` branches.
+### `Web_version/backend/`
+FastAPI server. Owns the simulation (balls, rectangles, walls, springs, gravity wells) and runs the physics loop server-side, streaming state to the browser over a WebSocket at 60Hz. All physics math (integration, collisions, springs, gravity wells) was ported near-verbatim from the Pygame version's `bodies.py` / `collisions.py` / `spring.py` / `gravity_well.py` / `wall.py` into `backend/physics/`. The old `state.py` module-level globals are now instance attributes on `SimulationState` (`backend/physics/simulation.py`), so each connection could in principle get its own independent sim if multi-room support is added later — right now everyone shares one global `sim`. The old pygame event loop (mouse clicks placing objects, keyboard mode switches, dragging sliders, editing the info panel) is now a set of JSON "commands" sent over the WebSocket (`main.py`'s `handle_command`), mirroring each of the old `if event.type == ...` branches.
 
-### `web_version/frontend/`
+### `Web_version/frontend/`
 React (Vite) app. Renders the world on a `<canvas>` and the side panel / sliders / info panel / kinematics graphs in HTML/SVG. Editable fields (mass/radius/x/y/vx/vy etc.) are plain `<input>`s that commit on blur/Enter, replacing the old manual keystroke-buffer editing in `ui.py`.
 
 ## Requirements
@@ -160,6 +190,11 @@ React (Vite) app. Renders the world on a `<canvas>` and the side panel / sliders
 - Python 3
 - Pygame (`pip install pygame`)
 
+**AI version:**
+- Python 3
+- Pygame (`pip install pygame`)
+- LangGraph and an LLM provider SDK/API key (see `AI_Version/` for the exact packages used and how to set your API key as an environment variable)
+
 **Web version:**
 - Python 3, Node.js/npm
 
@@ -167,13 +202,19 @@ React (Vite) app. Renders the world on a `<canvas>` and the side panel / sliders
 
 ### Pygame version
 ```bash
-cd pygame_version
+cd Pygame_version
 python main.py
+```
+
+### AI version
+```bash
+cd AI_Version
+python supervisor.py            # interactive: opens the Pygame window, agents build scenes from your prompts
 ```
 
 ### Web version — backend
 ```bash
-cd web_version/backend
+cd Web_version/backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
 uvicorn main:app --reload --port 8000
@@ -181,7 +222,7 @@ uvicorn main:app --reload --port 8000
 
 ### Web version — frontend
 ```bash
-cd web_version/frontend
+cd Web_version/frontend
 npm install
 cp .env.example .env   # points at ws://localhost:8000/ws by default
 npm run dev
@@ -194,15 +235,15 @@ Vercel's serverless functions can't hold a long-lived WebSocket open, which is w
 
 ### 1. Backend on Render
 1. Push this repo to GitHub.
-2. In Render: **New > Blueprint**, point it at the repo — it'll pick up `render.yaml` at the root automatically (root dir `web_version/backend`, start command `uvicorn main:app --host 0.0.0.0 --port $PORT`).
-   - Or set it up manually as a **Web Service**: root dir `web_version/backend`, build command `pip install -r requirements.txt`, start command `uvicorn main:app --host 0.0.0.0 --port $PORT`.
+2. In Render: **New > Blueprint**, point it at the repo — it'll pick up `render.yaml` at the root automatically (root dir `Web_version/backend`, start command `uvicorn main:app --host 0.0.0.0 --port $PORT`).
+   - Or set it up manually as a **Web Service**: root dir `Web_version/backend`, build command `pip install -r requirements.txt`, start command `uvicorn main:app --host 0.0.0.0 --port $PORT`.
 3. Once deployed you'll get a URL like `https://physics-sandbox-backend.onrender.com`. Test it: `https://<that-url>/health` should return `{"status":"ok"}`.
 4. Leave `ALLOWED_ORIGINS=*` for now — you'll lock it down in step 3 below.
 
 Note: Render's free tier spins the service down after inactivity, so the first WebSocket connect after idle time will be slow (~30-60s cold start) and `useSimSocket`'s auto-reconnect will just keep retrying until it's up.
 
 ### 2. Frontend on Vercel
-1. In Vercel: **New Project**, import the same repo, set **root directory** to `web_version/frontend` (it'll auto-detect Vite via `vercel.json`).
+1. In Vercel: **New Project**, import the same repo, set **root directory** to `Web_version/frontend` (it'll auto-detect Vite via `vercel.json`).
 2. Add an environment variable:
    `VITE_WS_URL = wss://physics-sandbox-backend.onrender.com/ws`
    (note **wss://**, not ws://, since Render serves over HTTPS — and no trailing slash after `/ws`).
