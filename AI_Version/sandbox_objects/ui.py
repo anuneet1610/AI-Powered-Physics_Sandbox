@@ -281,6 +281,109 @@ def draw_pause_indicator(screen, paused):
         screen.blit(font_mode.render(text, True, colour), (config.BOX_LEFT, config.BOX_TOP - 50))
 
 # ------------------------
+# Pause Popup (text prompt shown while paused)
+# ------------------------
+
+POPUP_W = 280
+POPUP_H = 110
+POPUP_MARGIN = 20
+
+def _popup_rect():
+    # Bottom-right corner of the window, tucked under the graph panel, so it
+    # never runs off-window and never blocks the scene/UI while paused.
+    x = config.WIDTH - POPUP_W - POPUP_MARGIN
+    y = config.HEIGHT - POPUP_H - POPUP_MARGIN
+    return pygame.Rect(x, y, POPUP_W, POPUP_H)
+
+def _input_box_rect(rect):
+    return pygame.Rect(rect.x + 16, rect.y + 46, rect.w - 32, 32)
+
+def pause_popup_open():
+    state.pause_popup_active = True
+    state.pause_popup_text = ""
+    state.pause_popup_focused = False  # must be clicked before it captures keystrokes
+
+def pause_popup_close():
+    state.pause_popup_active = False
+    state.pause_popup_text = ""
+    state.pause_popup_focused = False
+
+def pause_popup_handle_click(mx, my):
+    """Call from MOUSEBUTTONDOWN while the popup is open. Focuses the input
+    box if the click landed inside it, unfocuses it otherwise (click-away)."""
+    if not getattr(state, "pause_popup_active", False):
+        return
+    input_box = _input_box_rect(_popup_rect())
+    state.pause_popup_focused = input_box.collidepoint(mx, my)
+
+def handle_pause_popup_keydown(event, on_submit):
+    """Route a KEYDOWN event while the pause popup is open AND focused.
+    Returns True = consumed. If the box isn't focused, keys (e.g. 'P' to
+    unpause) fall through to the normal handlers instead of being typed."""
+    if not getattr(state, "pause_popup_active", False):
+        return False
+    if not getattr(state, "pause_popup_focused", False):
+        return False
+
+    if event.key in (pygame.K_RETURN, pygame.K_KP_ENTER):
+        submitted_text = state.pause_popup_text
+        pause_popup_close()
+        on_submit(submitted_text)
+    elif event.key == pygame.K_ESCAPE:
+        pause_popup_close()
+    elif event.key == pygame.K_BACKSPACE:
+        state.pause_popup_text = state.pause_popup_text[:-1]
+    else:
+        if event.unicode and event.unicode.isprintable():
+            state.pause_popup_text += event.unicode
+    return True
+
+def _wrap_text(text, font, max_width):
+    words = text.split(" ")
+    lines = []
+    current = ""
+    for word in words:
+        candidate = f"{current} {word}".strip()
+        if font.size(candidate)[0] <= max_width:
+            current = candidate
+        else:
+            if current:
+                lines.append(current)
+            current = word
+    if current:
+        lines.append(current)
+    return lines
+
+
+def draw_pause_popup(screen):
+    if not getattr(state, "pause_popup_active", False):
+        return
+
+    focused = getattr(state, "pause_popup_focused", False)
+    rect = _popup_rect()
+    pygame.draw.rect(screen, (30, 30, 35), rect, border_radius=8)
+    border_colour = (200, 200, 70) if focused else (110, 110, 60)
+    pygame.draw.rect(screen, border_colour, rect, 2, border_radius=8)
+
+    hint = "Click box to type, then press Enter:" if not focused else "Type something, then press Enter:"
+    max_text_width = rect.width - 32  # 16px padding on each side
+    hint_lines = _wrap_text(hint, font_mode, max_text_width)
+
+    line_height = font_mode.get_linesize()
+    text_y = rect.y + 14
+    for line in hint_lines:
+        prompt = font_mode.render(line, True, (220, 220, 220))
+        screen.blit(prompt, (rect.x + 16, text_y))
+        text_y += line_height
+
+    input_box = _input_box_rect(rect)
+    pygame.draw.rect(screen, (45, 45, 18), input_box)
+    pygame.draw.rect(screen, border_colour, input_box, 1)
+
+    display_text = state.pause_popup_text + ("|" if focused else "")
+    text_surf = font_vel.render(display_text, True, (255, 255, 120))
+    screen.blit(text_surf, (input_box.x + 6, input_box.y + 7))
+# ------------------------
 # Spring Panel
 # ------------------------
 # Sits between BOX_RIGHT (850) and SLIDER_X (900), full box height.
