@@ -1,11 +1,11 @@
 # AI-Powered 2D Physics Sandbox
 
-A 2D physics engine with three interfaces built on top of it: a desktop Pygame app, an AI-powered version where agents generate scenes from natural language and a web app (React + Python backend). The physics simulation is built from scratch, no physics engine or physics library is used anywhere. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. If not manually, you can directly ask the AI agent to build the scene for you.
+A 2D physics engine with three interfaces built on top of it: a desktop Pygame app, an AI-powered version where agents generate scenes from natural language and a web app (React + Python backend). The physics simulation is built from scratch, no physics engine or physics library is used anywhere. You can drop balls and rectangles into a bounded world, draw walls, connect objects with springs, place gravity wells, and watch everything collide and move in real time. If not manually, you can directly ask the AI agent to build the scene for you — or pause a running simulation mid-flight and describe edits in plain English to have the AI patch the live scene.
 
 This repo contains three implementations:
 
 - **`Pygame_version/`** — the original standalone desktop app, built in Python with Pygame. Pygame is only used for rendering, windowing, and input handling; it provides no physics.
-- **`AI_Version/`** - a layer of AI agents on top of the Pygame app, to generate scenes using natural language. **LangGraph** is used as the orchestration tool, to manage all the agents required to understand the user request, and generate appropriate objects. Two layers of AI reasoning are used to output the most accurate scene.
+- **`AI_Version/`** - a layer of AI agents on top of the Pygame app, to generate scenes using natural language. **LangGraph** is used as the orchestration tool, to manage all the agents required to understand the user request, and generate appropriate objects. Two layers of AI reasoning are used to output the most accurate scene. Agents can also edit a live scene mid-simulation via a pause-triggered prompt.
 - **`Web_version/`** — a port of the same simulation to a web app, with a **FastAPI** backend that owns and runs the physics loop server-side (streaming state to the browser over a WebSocket at 60Hz) and a **React (Vite)** frontend that renders the world on a `<canvas>` with the side panel / sliders / info panel / kinematics graphs in HTML/SVG.
 
 You can access the deployed web version from this link: https://physics-sandbox-roan.vercel.app/  (It may take a minute to connect to the server and load)
@@ -21,10 +21,12 @@ You can access the deployed web version from this link: https://physics-sandbox-
 - Adjust **gravity** and **restitution (bounciness)** on the fly using sliders
 - **Pause** the simulation at any time
 - In the **AI version**, describe a scene in plain English (e.g. "drop three balls connected by springs") and have agents build it for you
+- In the **AI version**, pause a running simulation and describe edits in plain English — the AI patches the live scene in place, adding, removing, or modifying objects and springs without restarting
 
 ## AI Agent Pipeline Architecture
 
-The LLM used is Gemini 3.1 Flash Lite. Following are the steps in the pipeline:
+### Scene generation
+The LLM used is Gemini Flash Lite. Following are the steps in the pipeline:
 - A LLM understands the user query, and thinks out the whole reasoning loudly.
 - A second LLM extracts the positions and velocities from the physical reasoning, and generates a structured output.
 - The imaginary objects are converted to the actual objects of the Pygame scene, with the same physical parameters.
@@ -32,6 +34,12 @@ The LLM used is Gemini 3.1 Flash Lite. Following are the steps in the pipeline:
 - The springs are converted to actual Pygame objects.
 - The Pygame scene is initiated with the desired objects.
 
+### Live scene editing (pause-triggered)
+While the simulation is running, press `P` to pause. A text prompt popup appears in the bottom-right corner of the window. Type a natural-language description of the changes you want — add objects, remove them, change properties, rewire springs — and press `Enter`. A separate LangGraph edit graph receives the full current scene state and applies a typed diff (`EditPlanOutput`) that specifies exactly which objects to add, modify, or delete. The simulation resumes with the patched scene.
+
+Every object — whether created by the UI or by the AI editor — carries two identity labels:
+- **`role_label`** (persistent): the object's intent or origin, assigned at creation and stable for the object's lifetime (e.g. `"pendulum_bob"`, `"user_ball_3"`).
+- **`pos_label`** (transient): a spatial description recomputed fresh on each pause from the current positions of all objects (e.g. `"leftmost"`, `"top_ball"`). This is what the AI editor uses to refer to objects by their current position in the scene, without the label going stale as the simulation evolves.
 
 ## Controls (Pygame version and AI version)
 
@@ -49,7 +57,7 @@ The LLM used is Gemini 3.1 Flash Lite. Following are the steps in the pipeline:
 
 In the web version, the same interactions (mode switching, spawning, dragging sliders, deleting last object, editing fields) are driven by on-screen buttons and plain `<input>` elements that commit on blur/Enter, since browsers don't expose the same raw-keyboard modifier ergonomics as Pygame. The Z+key "delete last X" shortcut becomes a "Delete last <type>" button aware of the current mode.
 
-In the AI version, the same window and controls are available, but objects can also be added, wired, or configured directly by the agents in response to a natural-language prompt instead of manual clicks/keys.
+In the AI version, the same window and controls are available, but objects can also be added, wired, or configured directly by the agents in response to a natural-language prompt instead of manual clicks/keys. Additionally, pausing with `P` opens the AI edit prompt, letting you describe scene changes mid-simulation.
 
 ## Modes
 
@@ -59,7 +67,7 @@ In the AI version, the same window and controls are available, but objects can a
 4. **Rectangle Mode [R]**: Draw a rectangle by clicking anywhere in the world, initiated with random dimensions and velocity (editable later via info panel).
 5. **Gravity Well [G]**: Add a fixed Gravity Well by clicking anywhere in the world, with a fixed mass of 1000 kg.
 
-You can pause the scene with [P] (or the pause button in the web version), and make any changes you want while paused.
+You can pause the scene with [P] (or the pause button in the web version), and make any changes you want while paused — either manually via the UI or, in the AI version, by typing a natural-language edit into the popup prompt.
 
 ## Screenshots (Screenshots of Pygame UI. Almost same UI of Web Version)
 
@@ -67,6 +75,11 @@ You can pause the scene with [P] (or the pause button in the web version), and m
 It shows one ball and one rectangle in the window. Currently the ball is selected, and its info is displayed in the bottom-most panel. The live graphs of its x-axis position, y-axis position, x-axis velocity and y-axis velocity are also displayed on the right. There is a panel just to the right of the window, which lists all the objects present, and you can select them from here. There are two sliders, one for adjusting the acceleration due to gravity (g), and another to adjust the coefficient of restitution (e: energy lost in a collision).
 
 <img width="900" height="800" alt="SS_1" src="https://github.com/user-attachments/assets/9f74fc31-439c-4d9e-a5c4-181023460c26" />
+
+### Add Objects using the AI Editor
+When the simulation is paused, a prompt box appears in the bottom right corner, where you can describe the changes you want.
+<img width="1288" height="1003" alt="image" src="https://github.com/user-attachments/assets/b48b9e8c-04e4-4cca-bccc-0eb955001f01" />
+
 
 ### Added Objects with Springs
 Two new rectangles and four new balls are added. There is a rectangle-rectangle, rectangle-ball and ball-ball pair connected with springs.
@@ -101,14 +114,20 @@ AI_Version/
                            driven either by normal keyboard/mouse input or by the executor agent
 
 Pygame_version/
-    main.py          Entry point: game loop, event handling, physics step order, rendering
-    ui.py            All UI drawing and interaction — sliders, info panel, spring panel, graphs
+    main.py          Entry point: game loop, event handling, physics step order, rendering; also contains
+                     handle_pause_popup_submit — the closure that hands the pause-prompt text to the edit graph
+                     and applies the returned diff to the live object lists
+    ui.py            All UI drawing and interaction — sliders, info panel, spring panel, graphs, and the
+                     pause-triggered AI edit popup (focused/unfocused states, hint text, input box)
+    planner.py       LangGraph edit graph: receives current scene state and a natural-language edit description,
+                     reasons about the required changes, and returns a typed EditPlanOutput diff
     bodies.py        RigidBody base class, plus Ball and Rectangle (physics + collision response)
     collisions.py    Ball/rectangle vs wall collision detection and resolution, world boundary clamping
     wall.py          Simple Wall class (a line segment with precomputed normal/tangent)
     spring.py        Spring class — spring-damper force between two objects
     gravity_well.py  Gravity_Well class — applies an inverse-square attractive force to nearby objects
-    state.py         Shared mutable simulation state (gravity, restitution, mode, selection, timers, etc.)
+    state.py         Shared mutable simulation state (gravity, restitution, mode, selection, pause state,
+                     pause_popup_focused, timers, etc.)
     config.py        Screen/window layout constants (panel positions, sizes)
     coords.py        Converts between world coordinates (metres) and screen coordinates (pixels)
 
@@ -162,8 +181,13 @@ The entry point. Sets up the initial walls, balls, and rectangles, opens the Pyg
 3. Records the selected object's position/velocity history (for the graphs)
 4. Draws everything to the screen
 
+It also contains `handle_pause_popup_submit`, a closure defined inside `run_pygame` that has direct access to the live object lists. When the user submits a natural-language edit via the pause popup, this function serialises the current scene, calls the edit graph (`planner.py`), receives an `EditPlanOutput` diff, applies all additions/removals/modifications to the live lists, and triggers a fresh `pos_label` recomputation pass over all objects.
+
+### `Pygame_version/planner.py`
+The LangGraph edit graph for mid-simulation scene editing. Receives the current scene (serialised balls, rectangles, walls, springs — including each object's `role_label` and `pos_label`) plus the user's natural-language edit description. A first LLM reasons freely about what needs to change; a second extracts a typed `EditPlanOutput` diff (lists of `BallEdit`, `RectEdit`, `WallEdit`, `SpringEdit`) that `handle_pause_popup_submit` applies directly to the live simulation.
+
 ### `Pygame_version/bodies.py`
-Defines `RigidBody`, the base class every physics object inherits from. It stores position, velocity, mass, and accumulated force, and implements basic semi-implicit Euler integration (`F = ma`, update velocity then position). `Ball` and `Rectangle` extend it with their own shape data and their own `check_collision` methods (ball-ball, rectangle-rectangle, and rectangle-ball), all handled with basic impulse-based collision resolution.
+Defines `RigidBody`, the base class every physics object inherits from. It stores position, velocity, mass, and accumulated force, and implements basic semi-implicit Euler integration (`F = ma`, update velocity then position). `Ball` and `Rectangle` extend it with their own shape data and their own `check_collision` methods (ball-ball, rectangle-rectangle, and rectangle-ball), all handled with basic impulse-based collision resolution. Every object is assigned a unique `id` and a `role_label` at construction via a shared `assign_identity` factory.
 
 ### `Pygame_version/collisions.py`
 Handles collisions between objects and walls. Includes both a "static" check (object already overlapping a wall) and a "swept" check (object moving fast enough to tunnel through a wall in a single frame — caught by checking which side of the wall the object was on last frame vs. this frame). Also contains the logic that keeps every object inside the outer world boundary.
@@ -178,7 +202,7 @@ A `Spring` connects two bodies and applies a force proportional to how far the s
 A `Gravity_Well` pulls balls and rectangles toward it using an inverse-square law (`F = G * m1 * m2 / r^2`), similar to Newtonian gravity, in addition to the normal downward gravity from `state.g`.
 
 ### `Pygame_version/state.py`
-Holds shared, mutable values used across the whole project — current gravity, restitution, current interaction mode (BALL/WALL/SPRING/etc.), which object is selected, pause state, world size, and the rolling history of the selected object's motion (used for the graphs).
+Holds shared, mutable values used across the whole project — current gravity, restitution, current interaction mode (BALL/WALL/SPRING/etc.), which object is selected, pause state, `pause_popup_focused`, world size, and the rolling history of the selected object's motion (used for the graphs).
 
 ### `Pygame_version/config.py`
 Just layout constants — window size, where the simulation box is drawn on screen, and where the graph panel sits.
@@ -187,7 +211,7 @@ Just layout constants — window size, where the simulation box is drawn on scre
 Two small functions that convert between "world" coordinates (metres, y-up, used by the physics) and "screen" coordinates (pixels, y-down, used by Pygame) so the two systems never get mixed up.
 
 ### `Pygame_version/ui.py`
-Everything visual that isn't the simulation itself: the gravity/restitution sliders, the mode indicator, the pause indicator, the object list panel (used for spring wiring and selection), the editable info panel for the selected object, and the four kinematics graphs (x, y, vx, vy over time).
+Everything visual that isn't the simulation itself: the gravity/restitution sliders, the mode indicator, the pause indicator, the object list panel (used for spring wiring and selection), the editable info panel for the selected object, and the four kinematics graphs (x, y, vx, vy over time). Also draws the pause-triggered AI edit popup — a text input anchored to the bottom-right corner that shows hint text (with wrapping) when unfocused and accepts natural-language edit descriptions when focused. The popup calls an `on_submit` callback (provided by `main.py`) rather than owning any simulation state directly.
 
 ### `Web_version/backend/`
 FastAPI server. Owns the simulation (balls, rectangles, walls, springs, gravity wells) and runs the physics loop server-side, streaming state to the browser over a WebSocket at 60Hz. All physics math (integration, collisions, springs, gravity wells) was ported near-verbatim from the Pygame version's `bodies.py` / `collisions.py` / `spring.py` / `gravity_well.py` / `wall.py` into `backend/physics/`. The old `state.py` module-level globals are now instance attributes on `SimulationState` (`backend/physics/simulation.py`), so each connection could in principle get its own independent sim if multi-room support is added later — right now everyone shares one global `sim`. The old pygame event loop (mouse clicks placing objects, keyboard mode switches, dragging sliders, editing the info panel) is now a set of JSON "commands" sent over the WebSocket (`main.py`'s `handle_command`), mirroring each of the old `if event.type == ...` branches.
@@ -222,6 +246,8 @@ python main.py
 cd AI_Version
 python supervisor.py            # interactive: opens the Pygame window, agents build scenes from your prompts
 ```
+
+Once the window is open, you can also press `P` to pause at any time and type a natural-language edit into the popup prompt to modify the live scene.
 
 ### Web version — backend
 ```bash
